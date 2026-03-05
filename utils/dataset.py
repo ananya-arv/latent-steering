@@ -171,7 +171,7 @@ def get_dataloaders(
     pred_len: int         = 25,
     stride: int           = 5,
     batch_size: int       = 128,
-    rare_threshold: float = 0.6,
+    rare_threshold: float = 0.85,
     seed: int             = 42,
 ):
     """
