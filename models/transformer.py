@@ -30,7 +30,7 @@ class TransformerModel(nn.Module):
         num_layers: int = 4,
         latent_dim: int = 64,
         pred_len: int = 25,
-        dropout: float = 0.1,
+        dropout: float = 0.2,
         dim_feedforward: int = 256,
     ):
         super().__init__()

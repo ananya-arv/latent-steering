@@ -12,7 +12,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR
+# from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import OneCycleLR
 from tqdm import tqdm
 
 from utils.dataset import get_dataloaders
@@ -68,7 +69,7 @@ def train_model(
     train_loader,
     val_loader,
     epochs: int   = 60,
-    lr: float     = 1e-3,
+    lr: float     = 5e-4,
     device: str   = "cuda",
     save_path: str = None,
     model_name: str = "Model",
@@ -78,8 +79,8 @@ def train_model(
     best checkpoint (lowest val ADE)
     """
     model     = model.to(device)
-    optimizer = Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
+    optimizer = Adam(model.parameters(), lr=lr, weight_decay=1e-3)
+    scheduler = OneCycleLR(optimizer, max_lr=lr, steps_per_epoch=len(train_loader), epochs=epochs, pct_start=0.1)
 
     best_val_ade = float("inf")
     best_state   = None

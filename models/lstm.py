@@ -10,7 +10,7 @@ class LSTMModel(nn.Module):
         latent_dim: int = 64,
         pred_len: int = 25,
         num_layers: int = 2,
-        dropout: float = 0.1,
+        dropout: float = 0.2,
     ):
         super().__init__()
         self.pred_len = pred_len
