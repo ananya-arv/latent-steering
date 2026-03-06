@@ -165,8 +165,8 @@ class TrajectoryDataset(Dataset):
 
 def get_dataloaders(
     data_dir: str,
-    obs_len: int          = 6,
-    pred_len: int         = 12,
+    obs_len: int          = 10,
+    pred_len: int         = 20,
     stride: int           = 1,
     batch_size: int       = 128,
     rare_threshold: float = 0.6,
