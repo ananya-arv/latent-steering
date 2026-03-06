@@ -15,7 +15,7 @@ import numpy as np
 import torch
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
-
+from sklearn.decomposition import PCA
 
 
 def extract_latents(model, dataloader, device: str = "cuda"):
@@ -31,18 +31,34 @@ def extract_latents(model, dataloader, device: str = "cuda"):
     return np.vstack(all_z), np.concatenate(all_r)
 
 
+def find_steering_vector(latents: np.ndarray, risks: np.ndarray, percentile: int = 10):
+    """
+    find steering direction w using PCA-whitened mean difference.
+    --> PCA whiten the latents (zero mean, identity covariance)
+    --> compute mean diff in whitened space: w = mean(z_hi) - mean(z_lo)
+    --> normalize w to unit length
+    --> auto-correct direction: ensure alpha > 0 → higher risk
+    --> fit Ridge probe for R2 diagnostic
 
-def find_steering_vector(latents: np.ndarray, risks: np.ndarray, percentile: int = 20):
     """
-    find steering direction w in raw latent space.
-    """
+    pca = PCA(n_components=latents.shape[1], whiten=True)
+    z_white = pca.fit_transform(latents)   #(N, latent_dim)
     lo_thresh = np.percentile(risks, percentile)
     hi_thresh = np.percentile(risks, 100 - percentile)
     lo_mask   = risks <= lo_thresh
     hi_mask   = risks >= hi_thresh
 
-    w = latents[hi_mask].mean(0) - latents[lo_mask].mean(0)
-    w = w / (np.linalg.norm(w) + 1e-8)
+    w_white = z_white[hi_mask].mean(0) - z_white[lo_mask].mean(0)
+    w_white = w_white / (np.linalg.norm(w_white) + 1e-8)
+    w_raw = pca.inverse_transform(w_white) - pca.inverse_transform(np.zeros_like(w_white))
+    w_raw = w_raw / (np.linalg.norm(w_raw) + 1e-8)
+
+    lo_risk = float(risks[lo_mask].mean())
+    hi_risk = float(risks[hi_mask].mean())
+    risk_corr = np.corrcoef(latents @ w_raw, risks)[0, 1]
+    if risk_corr < 0:
+        w_raw = -w_raw
+        print("  Auto-corrected w direction (risk_corr was negative)")
 
     scaler   = StandardScaler()
     z_scaled = scaler.fit_transform(latents)
@@ -52,46 +68,43 @@ def find_steering_vector(latents: np.ndarray, risks: np.ndarray, percentile: int
 
     print(f"  Linear R²:             {r2:.4f}  "
           f"({'good linear structure' if r2 > 0.25 else 'weak linear structure'})")
-    print(f"  Latent mean:           {latents.mean():.4f}  std: {latents.std():.4f}")
-    print(f"  Steering vector norm:  {np.linalg.norm(w):.4f} (should be 1.0)")
+    print(f"  Risk corr with w:      {risk_corr:.4f}  "
+          f"({'aligned' if abs(risk_corr) > 0.1 else 'weak alignment'})")
+    print(f"  Low-risk  mean:        {lo_risk:.3f}  (bottom {percentile}%)")
+    print(f"  High-risk mean:        {hi_risk:.3f}  (top {percentile}%)")
+    print(f"  Risk gap:              {hi_risk - lo_risk:.3f}")
     print(f"  High-risk samples:     {hi_mask.sum()}")
     print(f"  Low-risk  samples:     {lo_mask.sum()}")
 
-    return w, r2, scaler
+    return w_raw, r2, pca
 
 
 def steer_and_decode(model, obs: torch.Tensor, w: np.ndarray,
-                     alpha: float, device: str = "cuda"):
+                     alpha: float, device: str = "cuda",
+                     z_min: float = -0.99, z_max: float = 0.99):
     """
-    gen a trajectory steered alpha steps along w in RAW latent space.
-
-    process:
-        z    = model.encode(obs)          # raw latent
-        z'   = z + alpha * w              # steer directly
-        pred = model.decode(z')           # decode steered latent
-
-    alpha > 0 → steers toward high-risk behavior
-    alpha < 0 → steers toward low-risk  behavior
-    alpha = 0 → original unsteered prediction
-
+    gen a trajectory steered alpha steps along w.
     """
     model.eval()
     with torch.no_grad():
-        z = model.encode(obs.to(device)).cpu().numpy()    #(1, latent_dim)
+        z = model.encode(obs.to(device)).cpu().numpy()   #(1, latent_dim)
 
-        z_steered = z + alpha * w                         
+        z_steered = z + alpha * w
+        z_steered = np.clip(z_steered, z_min, z_max) 
+
         z_t  = torch.tensor(z_steered, dtype=torch.float32).to(device)
-        pred = model.decode(z_t).cpu().numpy()[0]         #(pred_len, 2)
+        pred = model.decode(z_t).cpu().numpy()[0]      
 
     return pred, z[0], z_steered[0]
 
 
+
 def is_plausible(traj_xy: np.ndarray,
-                 dt: float      = 1.0 / 30,
+                 dt: float       = 1.0 / 30,
                  max_speed: float = 6.0,
                  max_accel: float = 4.0) -> bool:
     """
-    check whether a generated trajectory satisfies pedestrian physics.
+    check whether a generated trajectory satisfies pedestrian physics
     """
     if len(traj_xy) < 2:
         return True
