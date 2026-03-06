@@ -13,18 +13,23 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-PIXEL_TO_METER = 0.0375   # 1px=about 3.75 cm in SDD as per paper
+# ── Physical constants (from Robicquet et al. ECCV 2016) ─────────────
+PIXEL_TO_METER = 0.0375
 FPS            = 30
 DT             = 1.0 / FPS
 
+MAX_SPEED      = 6.0    # m/s
+MAX_ACCEL      = 4.0    # m/s²
+MAX_TURN_RATE  = 5.0    # rad/s
+MAX_STEP_DIST  = 0.5    # m/frame
+MIN_SPEED_MOVING  = 0.3   
+RISK_SPEED_CEIL   = 4.0   
+RISK_ACCEL_CEIL   = 2.0 
+RISK_TURN_CEIL    = 1.5 
+
+
 SDD_COLS = ["track_id", "x_min", "y_min", "x_max", "y_max",
             "frame_id", "lost", "occluded", "generated", "label"]
-
-MIN_SPEED = 0.3
-MAX_SPEED=6.0
-MAX_ACCEL=4.0
-MAX_TURN_RATE=5.0
-
 
 def load_sdd_txt(filepath: str, agent_type: str = "Pedestrian") -> dict:
     """
@@ -136,21 +141,22 @@ def compute_risk_score(traj: np.ndarray) -> float:
         traj: (T, 4) = [x, y, vx, vy]
     """
     speeds = np.sqrt(traj[:, 2]**2 + traj[:, 3]**2)
-    
-    if speeds.mean() < MIN_SPEED:
+
+    if speeds.mean() < MIN_SPEED_MOVING:
         return -1.0
-    
-    r_speed = min((speeds.max() - MIN_SPEED) / (6.0 - MIN_SPEED), 1.0)
-    r_speed = max(r_speed, 0.0)
-    
+
     accels    = np.abs(np.diff(speeds)) / DT
     headings  = np.arctan2(traj[:, 3], traj[:, 2])
     d_heading = np.abs(np.diff(headings))
     d_heading = np.minimum(d_heading, 2 * np.pi - d_heading)
     turn_rate = d_heading / DT
 
-    r_accel = min(float(accels.max()) / MAX_ACCEL, 1.0) if len(accels) > 0 else 0.0
-    r_turn  = min(float(turn_rate.max()) / MAX_TURN_RATE, 1.0) if len(turn_rate) > 0 else 0.0
+    r_speed = float(np.clip((speeds.max() - MIN_SPEED_MOVING) /
+                            (RISK_SPEED_CEIL - MIN_SPEED_MOVING), 0.0, 1.0))
+    r_accel = float(np.clip(accels.max() / RISK_ACCEL_CEIL, 0.0, 1.0)) \
+              if len(accels) > 0 else 0.0
+    r_turn  = float(np.clip(turn_rate.max() / RISK_TURN_CEIL, 0.0, 1.0)) \
+              if len(turn_rate) > 0 else 0.0
 
     return 0.35 * r_speed + 0.35 * r_accel + 0.30 * r_turn
 
