@@ -23,7 +23,7 @@ DT = 1.0 / 30
 
 def risk_from_pred(pred_xy: np.ndarray) -> float:
     vxy  = np.diff(pred_xy, axis=0, prepend=pred_xy[:1]) / DT
-    full = np.concatenate([pred_xy, vxy], axis=1)   #(T, 4)
+    full = np.concatenate([pred_xy, vxy], axis=1)
     return compute_risk_score(full)
 
 
@@ -32,26 +32,18 @@ def run_experiment(
     model_name: str,
     val_loader,
     alphas: np.ndarray = None,
-    n_samples: int = 300,
-    device: str = "cuda",
+    n_samples: int     = 300,
+    device: str        = "cuda",
 ):
-    """
-    full probing + steering experiment for one model.
-    --> extract all latents from val_loader
-    --> fit steering vector (mean-diff + linear probe)
-    --> for each alpha: steer N sample trajectories, compute metrics
-    --> random-direction baseline at alpha=1.0
-    """
     if alphas is None:
-        alphas = np.linspace(-2.0, 2.0, 17)
+        alphas = np.linspace(-3.0, 3.0, 25)
 
-    print(f"\n{'='*55}")
     print(f"  {model_name}: Latent Probing + Steering")
-    print(f"{'='*55}")
 
     latents, risks = extract_latents(model, val_loader, device)
     print(f"  Latents shape: {latents.shape}")
-    w_mean, w_probe, r2, scaler = find_steering_vector(latents, risks)
+    print(f"  Latent range:  [{latents.min():.3f}, {latents.max():.3f}]")
+    w, r2, scaler = find_steering_vector(latents, risks)
     obs_list = []
     for obs, _, _ in val_loader:
         for i in range(obs.shape[0]):
@@ -60,15 +52,17 @@ def run_experiment(
                 break
         if len(obs_list) >= n_samples:
             break
-    print(f"\n  Sweeping alpha over {len(obs_list)} samples...")
+
+    print(f"\n  Alpha range: [{alphas.min():.1f}, {alphas.max():.1f}]")
+    print(f"  Sweeping over {len(obs_list)} samples...")
 
     records = []
     for alpha in alphas:
         risks_s, plaus_s, ade_shifts = [], [], []
 
         for obs_i in obs_list:
-            pred_s, _, _ = steer_and_decode(model, obs_i, w_probe, alpha, scaler, device)
-            pred_u, _, _ = steer_and_decode(model, obs_i, w_probe, 0.0,   scaler, device)
+            pred_s, _, _ = steer_and_decode(model, obs_i, w, alpha,  device)
+            pred_u, _, _ = steer_and_decode(model, obs_i, w, 0.0,    device)
 
             risks_s.append(risk_from_pred(pred_s))
             plaus_s.append(float(is_plausible(pred_s)))
@@ -83,26 +77,26 @@ def run_experiment(
         records.append(rec)
         print(
             f"  α={alpha:+5.2f} | Risk={rec['mean_risk']:.3f} | "
-            f"Plausible={rec['plausibility']:.1%} | ADE-shift={rec['ade_shift']:.3f} m"
+            f"Plausible={rec['plausibility']:.1%} | ADE-shift={rec['ade_shift']:.4f} m"
         )
 
     print(f"\n  Random baseline (α=1.0, 100 samples)...")
     rand_risks = []
     for obs_i in obs_list[:100]:
-        w_rand = np.random.randn(*w_probe.shape)
+        w_rand = np.random.randn(*w.shape)
         w_rand = w_rand / (np.linalg.norm(w_rand) + 1e-8)
-        pred_r, _, _ = steer_and_decode(model, obs_i, w_rand, 1.0, scaler, device)
+        pred_r, _, _ = steer_and_decode(model, obs_i, w_rand, 1.0, device)
         rand_risks.append(risk_from_pred(pred_r))
 
-    rand_risk = float(np.mean(rand_risks))
-    alpha1_rec = min(records, key=lambda r: abs(r["alpha"] - 1.0))
+    rand_risk    = float(np.mean(rand_risks))
+    alpha1_rec   = min(records, key=lambda r: abs(r["alpha"] - 1.0))
+    delta        = alpha1_rec["mean_risk"] - rand_risk
 
     print(f"\n  Structured (α=1.0) risk: {alpha1_rec['mean_risk']:.3f}")
     print(f"  Random     (α=1.0) risk: {rand_risk:.3f}")
-    delta = alpha1_rec["mean_risk"] - rand_risk
-    print(f"  → {'Structured > Random by ' + f'{delta:.3f}' if delta > 0.02 else 'no clear advantage over random'}")
+    print(f"  → {'Structured > Random by ' + f'{delta:.3f}' if delta > 0.01 else 'no clear advantage'}")
 
-    return records, r2, rand_risk, w_probe, scaler
+    return records, r2, rand_risk, w
 
 
 def plot_results(lstm_records, tf_records, lstm_r2, tf_r2):
@@ -112,25 +106,23 @@ def plot_results(lstm_records, tf_records, lstm_r2, tf_r2):
     al = [r["alpha"] for r in lstm_records]
     at = [r["alpha"] for r in tf_records]
 
-    # Panel 1: Risk vs alpha
-    axes[0].plot(al, [r["mean_risk"] for r in lstm_records], "b-o", ms=4, label="LSTM")
-    axes[0].plot(at, [r["mean_risk"] for r in tf_records],   "r-s", ms=4, label="Transformer")
+    axes[0].plot(al, [r["mean_risk"] for r in lstm_records], "b-o", ms=3, label="LSTM")
+    axes[0].plot(at, [r["mean_risk"] for r in tf_records],   "r-s", ms=3, label="Transformer")
     axes[0].axvline(0, color="gray", ls=":", alpha=0.5)
     axes[0].set_xlabel("Steering α"); axes[0].set_ylabel("Mean Risk Score")
     axes[0].set_title("Risk vs Steering Magnitude")
     axes[0].legend(); axes[0].grid(alpha=0.3)
 
-    # Panel 2: Plausibility vs alpha
-    axes[1].plot(al, [r["plausibility"] for r in lstm_records], "b-o", ms=4, label="LSTM")
-    axes[1].plot(at, [r["plausibility"] for r in tf_records],   "r-s", ms=4, label="Transformer")
+    axes[1].plot(al, [r["plausibility"] for r in lstm_records], "b-o", ms=3, label="LSTM")
+    axes[1].plot(at, [r["plausibility"] for r in tf_records],   "r-s", ms=3, label="Transformer")
     axes[1].axvline(0, color="gray", ls=":", alpha=0.5)
     axes[1].set_xlabel("Steering α"); axes[1].set_ylabel("Plausibility Rate")
     axes[1].set_title("Physical Plausibility vs Steering")
     axes[1].set_ylim(0, 1.05); axes[1].legend(); axes[1].grid(alpha=0.3)
 
-    # Panel 3: R² bar chart
     bars = axes[2].bar(["LSTM", "Transformer"], [lstm_r2, tf_r2],
-                        color=["steelblue", "tomato"], width=0.4, edgecolor="k", linewidth=0.7)
+                        color=["steelblue", "tomato"], width=0.4,
+                        edgecolor="k", linewidth=0.7)
     axes[2].set_ylabel("Linear R² (risk ~ z)")
     axes[2].set_title("Latent Space Linearity\n(higher = more structured)")
     axes[2].set_ylim(0, 1)
@@ -147,10 +139,10 @@ def plot_results(lstm_records, tf_records, lstm_r2, tf_r2):
 
 
 if __name__ == "__main__":
-    DATA_DIR = sys.argv[1] if len(sys.argv) > 1 else "OpenTraj/datasets/SDD/"
+    DATA_DIR = sys.argv[1] if len(sys.argv) > 1 else "/content/SDD/annotations/"
     DEVICE   = "cuda" if torch.cuda.is_available() else "cpu"
 
-    _, val_loader, test_loader, rare_loader = get_dataloaders(DATA_DIR, batch_size=128)
+    _, val_loader, _, _ = get_dataloaders(DATA_DIR, batch_size=128, rare_threshold=0.85)
 
     lstm = LSTMModel()
     lstm.load_state_dict(torch.load("checkpoints/lstm_best_v2.pt", map_location="cpu"))
@@ -160,10 +152,10 @@ if __name__ == "__main__":
     transformer.load_state_dict(torch.load("checkpoints/transformer_best_v2.pt", map_location="cpu"))
     transformer = transformer.to(DEVICE)
 
-    lstm_rec, lstm_r2, lstm_rand, lstm_w, lstm_sc = run_experiment(
+    lstm_rec, lstm_r2, lstm_rand, lstm_w = run_experiment(
         lstm, "LSTM", val_loader, device=DEVICE)
 
-    tf_rec, tf_r2, tf_rand, tf_w, tf_sc = run_experiment(
+    tf_rec, tf_r2, tf_rand, tf_w = run_experiment(
         transformer, "Transformer", val_loader, device=DEVICE)
 
     plot_results(lstm_rec, tf_rec, lstm_r2, tf_r2)
@@ -185,4 +177,9 @@ if __name__ == "__main__":
     with open("results/summary_table.txt", "w") as f:
         f.write(table)
     print("Saved → results/summary_table.txt")
-    print("\nNext step: python visualize.py")
+
+
+
+
+
+
