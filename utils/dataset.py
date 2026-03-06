@@ -21,7 +21,10 @@ MAX_SPEED     = 6.0
 MAX_ACCEL     = 3.0   
 MAX_STEP_DIST = 2.4  
 MIN_SPEED_MOVING = 0.3   
-RISK_SPEED_CEIL  = 3.5   
+RISK_SPEED_CEIL = 2.5   
+RISK_ACCEL_CEIL = 1.0 
+RISK_TURN_CEIL  = 1.0 
+ 
 
 SDD_COLS = ["track_id", "x_min", "y_min", "x_max", "y_max",
             "frame_id", "lost", "occluded", "generated", "label"]
@@ -122,27 +125,23 @@ def normalize_window(obs: np.ndarray, pred: np.ndarray):
 
 
 def compute_risk_score(traj: np.ndarray) -> float:
-    """
-    Risk score in [0,1] based on position-derived speed at 0.4s resolution.
-    Returns -1.0 for stationary agents.
-
-    Calibration:
-        Slow walk  ~0.8 m/s  → risk ~0.11
-        Normal walk ~1.4 m/s → risk ~0.20
-        Fast walk  ~2.0 m/s  → risk ~0.29
-        Running    ~3.5 m/s  → risk ~0.50
-        Sprinting  ~5.0 m/s  → risk ~0.71
-    """
-    step_dists = np.sqrt(np.diff(traj[:, 0])**2 + np.diff(traj[:, 1])**2)
+    step_dists = np.sqrt(np.diff(traj[:,0])**2 + np.diff(traj[:,1])**2)
     speeds     = step_dists / DT
 
     if len(speeds) == 0 or speeds.mean() < MIN_SPEED_MOVING:
         return -1.0
 
-    r_mean = float(np.clip(speeds.mean() / RISK_SPEED_CEIL, 0.0, 1.0))
-    r_max  = float(np.clip(speeds.max()  / RISK_SPEED_CEIL, 0.0, 1.0))
+    accels    = np.abs(np.diff(speeds))  
+    headings  = np.arctan2(traj[:,3], traj[:,2])
+    d_heading = np.abs(np.diff(headings))
+    d_heading = np.minimum(d_heading, 2*np.pi - d_heading)
+    turn_rate = d_heading / DT
 
-    return 0.5 * r_mean + 0.5 * r_max
+    r_speed = float(np.clip(speeds.mean() / RISK_SPEED_CEIL, 0.0, 1.0))
+    r_accel = float(np.clip(accels.max()  / RISK_ACCEL_CEIL, 0.0, 1.0)) if len(accels) > 0 else 0.0
+    r_turn  = float(np.clip(turn_rate.max() / RISK_TURN_CEIL, 0.0, 1.0)) if len(turn_rate) > 0 else 0.0
+
+    return 0.40 * r_speed + 0.35 * r_accel + 0.25 * r_turn
 
 
 class TrajectoryDataset(Dataset):
