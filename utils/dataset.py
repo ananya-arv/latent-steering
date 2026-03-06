@@ -20,6 +20,11 @@ DT             = 1.0 / FPS
 SDD_COLS = ["track_id", "x_min", "y_min", "x_max", "y_max",
             "frame_id", "lost", "occluded", "generated", "label"]
 
+MIN_SPEED = 0.3
+MAX_SPEED=6.0
+MAX_ACCEL=4.0
+MAX_TURN_RATE=5.0
+
 
 def load_sdd_txt(filepath: str, agent_type: str = "Pedestrian") -> dict:
     """
@@ -130,19 +135,25 @@ def compute_risk_score(traj: np.ndarray) -> float:
     Args:
         traj: (T, 4) = [x, y, vx, vy]
     """
-    speeds    = np.sqrt(traj[:, 2] ** 2 + traj[:, 3] ** 2)
+    speeds = np.sqrt(traj[:, 2]**2 + traj[:, 3]**2)
+    
+    if speeds.mean() < MIN_SPEED:
+        return -1.0
+    
+    r_speed = min((speeds.max() - MIN_SPEED) / (6.0 - MIN_SPEED), 1.0)
+    r_speed = max(r_speed, 0.0)
+    
     accels    = np.abs(np.diff(speeds)) / DT
-
     headings  = np.arctan2(traj[:, 3], traj[:, 2])
     d_heading = np.abs(np.diff(headings))
     d_heading = np.minimum(d_heading, 2 * np.pi - d_heading)
     turn_rate = d_heading / DT
 
-    r_speed = min(float(speeds.max()) / 3.5, 1.0)
-    r_accel = min(float(accels.max()) / 3.0, 1.0)
-    r_turn  = min(float(turn_rate.max()) / 3.0, 1.0)
+    r_accel = min(float(accels.max()) / MAX_ACCEL, 1.0) if len(accels) > 0 else 0.0
+    r_turn  = min(float(turn_rate.max()) / MAX_TURN_RATE, 1.0) if len(turn_rate) > 0 else 0.0
 
     return 0.35 * r_speed + 0.35 * r_accel + 0.30 * r_turn
+
 
 
 class TrajectoryDataset(Dataset):
@@ -201,6 +212,11 @@ def get_dataloaders(
         compute_risk_score(normalize_window(w[0], w[1])[0])
         for w in all_windows
     ])
+
+    valid_mask  = risks >= 0
+    all_windows = [all_windows[i] for i in np.where(valid_mask)[0]]
+    risks       = risks[valid_mask]
+    print(f"After removing stationary: {len(all_windows)} windows")
 
     print(
         f"Risk — mean: {risks.mean():.3f}  std: {risks.std():.3f}  "
