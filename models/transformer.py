@@ -29,7 +29,7 @@ class TransformerModel(nn.Module):
         nhead: int = 4,
         num_layers: int = 4,
         latent_dim: int = 64,
-        pred_len: int = 12,
+        pred_len: int = 20,
         dropout: float = 0.2,
         dim_feedforward: int = 256,
     ):

@@ -15,7 +15,7 @@ from torch.utils.data import Dataset, DataLoader
 
 PIXEL_TO_METER = 0.0375          
 FPS            = 30
-SUBSAMPLE      = 12              
+SUBSAMPLE      = 6             
 DT             = SUBSAMPLE / FPS 
 MAX_SPEED     = 6.0   
 MAX_ACCEL     = 3.0   
@@ -76,8 +76,8 @@ def is_physically_plausible(traj: np.ndarray) -> bool:
 
 def extract_windows(
     agents: dict,
-    obs_len: int  = 6,    # 6 × 0.4s = 2.4s observation  (SDD paper)
-    pred_len: int = 12,   # 12 × 0.4s = 4.8s prediction  (SDD paper)
+    obs_len: int  = 10,    # 10 × 0.4s = 2.0s observation  (SDD paper)
+    pred_len: int = 20,   # 20 × 0.4s = 4.0s prediction  (SDD paper)
     stride: int   = 1,
 ) -> list:
     """Slide window over subsampled trajectories, discarding implausible windows."""
