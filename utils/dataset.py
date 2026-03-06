@@ -13,18 +13,9 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-PIXEL_TO_METER = 0.0375          
+PIXEL_TO_METER = 0.0375   # 1px=about 3.75 cm in SDD as per paper
 FPS            = 30
-SUBSAMPLE      = 6             
-DT             = SUBSAMPLE / FPS 
-MAX_SPEED     = 6.0   
-MAX_ACCEL     = 3.0   
-MAX_STEP_DIST = 2.4  
-MIN_SPEED_MOVING = 0.3   
-RISK_SPEED_CEIL = 2.5   
-RISK_ACCEL_CEIL = 1.0 
-RISK_TURN_CEIL  = 1.0 
- 
+DT             = 1.0 / FPS
 
 SDD_COLS = ["track_id", "x_min", "y_min", "x_max", "y_max",
             "frame_id", "lost", "occluded", "generated", "label"]
@@ -32,7 +23,10 @@ SDD_COLS = ["track_id", "x_min", "y_min", "x_max", "y_max",
 
 def load_sdd_txt(filepath: str, agent_type: str = "Pedestrian") -> dict:
     """
-    load one raw SDD annotations.txt, subsampled to 0.4s intervals.
+    load one raw SDD annotations.txt file.
+
+    Returns:
+        agents: dict  track_id → np.array (T, 4) = [x, y, vx, vy] in meters
     """
     try:
         df = pd.read_csv(filepath, sep=" ", header=None, names=SDD_COLS)
@@ -51,36 +45,33 @@ def load_sdd_txt(filepath: str, agent_type: str = "Pedestrian") -> dict:
     agents = {}
     for agent_id, group in df.groupby("track_id"):
         group = group.sort_values("frame_id").reset_index(drop=True)
+        xy    = group[["x", "y"]].values.astype(np.float32)
 
-        group = group.iloc[::SUBSAMPLE].reset_index(drop=True)
-
-        xy = group[["x", "y"]].values.astype(np.float32)
         if len(xy) < 5:
             continue
 
         vxy = np.gradient(xy, DT, axis=0)
-        agents[agent_id] = np.concatenate([xy, vxy], axis=1)
+        agents[agent_id] = np.concatenate([xy, vxy], axis=1)  # (T, 4)
 
     return agents
 
 
-def is_physically_plausible(traj: np.ndarray) -> bool:
-    """check physical plausibility at 0.4s resolution using position-based speed."""
-    if not np.isfinite(traj).all():
-        return False
-    step_dists = np.sqrt(np.diff(traj[:, 0])**2 + np.diff(traj[:, 1])**2)
-    if len(step_dists) > 0 and step_dists.max() > MAX_STEP_DIST:
-        return False
-    return True
-
 
 def extract_windows(
     agents: dict,
-    obs_len: int  = 10,    # 10 × 0.4s = 2.0s observation  (SDD paper)
-    pred_len: int = 20,   # 20 × 0.4s = 4.0s prediction  (SDD paper)
-    stride: int   = 1,
+    obs_len: int  = 15,
+    pred_len: int = 25,
+    stride: int   = 5,
 ) -> list:
-    """Slide window over subsampled trajectories, discarding implausible windows."""
+    """
+    sliding window over each agent trajectory.
+
+    At 30 Hz:
+        obs_len=15  → 0.5 s observation
+        pred_len=25 → 0.83 s prediction
+
+    Returns list of (obs, pred) tuples, each np.array shape (T, 4).
+    """
     windows = []
     total   = obs_len + pred_len
 
@@ -90,15 +81,17 @@ def extract_windows(
         for start in range(0, len(traj) - total + 1, stride):
             obs  = traj[start : start + obs_len]
             pred = traj[start + obs_len : start + total]
-            if not is_physically_plausible(np.concatenate([obs, pred], axis=0)):
-                continue
             windows.append((obs, pred))
 
     return windows
 
 
 def normalize_window(obs: np.ndarray, pred: np.ndarray):
-    """last observed position → origin, heading → +x axis."""
+    """
+    with last observed position → origin and last observed heading  → +x axis
+
+    model can learn relative motion patterns
+    """
     origin = obs[-1, :2].copy()
     vx, vy = float(obs[-1, 2]), float(obs[-1, 3])
     speed  = np.sqrt(vx**2 + vy**2)
@@ -109,7 +102,7 @@ def normalize_window(obs: np.ndarray, pred: np.ndarray):
         cos_t =  vx / speed
         sin_t = -vy / speed
 
-    def transform(arr):
+    def transform(arr: np.ndarray) -> np.ndarray:
         out = arr.copy()
         out[:, 0] -= origin[0]
         out[:, 1] -= origin[1]
@@ -124,24 +117,32 @@ def normalize_window(obs: np.ndarray, pred: np.ndarray):
     return transform(obs), transform(pred)
 
 
+
 def compute_risk_score(traj: np.ndarray) -> float:
-    step_dists = np.sqrt(np.diff(traj[:,0])**2 + np.diff(traj[:,1])**2)
-    speeds     = step_dists / DT
+    """
+    scalar risk score in [0, 1] for a pedestrian trajectory window.
 
-    if len(speeds) == 0 or speeds.mean() < MIN_SPEED_MOVING:
-        return -1.0
+    Three components:
+        speed (running near traffic is unusual/dangerous)
+        accel  (sudden speed changes = unpredictable)
+        turn rate  (erratic direction changes = collision risk)
 
-    accels    = np.abs(np.diff(speeds))  
-    headings  = np.arctan2(traj[:,3], traj[:,2])
+    Args:
+        traj: (T, 4) = [x, y, vx, vy]
+    """
+    speeds    = np.sqrt(traj[:, 2] ** 2 + traj[:, 3] ** 2)
+    accels    = np.abs(np.diff(speeds)) / DT
+
+    headings  = np.arctan2(traj[:, 3], traj[:, 2])
     d_heading = np.abs(np.diff(headings))
-    d_heading = np.minimum(d_heading, 2*np.pi - d_heading)
+    d_heading = np.minimum(d_heading, 2 * np.pi - d_heading)
     turn_rate = d_heading / DT
 
-    r_speed = float(np.clip(speeds.mean() / RISK_SPEED_CEIL, 0.0, 1.0))
-    r_accel = float(np.clip(accels.max()  / RISK_ACCEL_CEIL, 0.0, 1.0)) if len(accels) > 0 else 0.0
-    r_turn  = float(np.clip(turn_rate.max() / RISK_TURN_CEIL, 0.0, 1.0)) if len(turn_rate) > 0 else 0.0
+    r_speed = min(float(speeds.max()) / 3.5, 1.0)
+    r_accel = min(float(accels.max()) / 3.0, 1.0)
+    r_turn  = min(float(turn_rate.max()) / 3.0, 1.0)
 
-    return 0.40 * r_speed + 0.35 * r_accel + 0.25 * r_turn
+    return 0.35 * r_speed + 0.35 * r_accel + 0.30 * r_turn
 
 
 class TrajectoryDataset(Dataset):
@@ -163,28 +164,28 @@ class TrajectoryDataset(Dataset):
         return self.data[idx]
 
 
+
 def get_dataloaders(
     data_dir: str,
-    obs_len: int          = 10,
-    pred_len: int         = 20,
-    stride: int           = 1,
+    obs_len: int          = 15,
+    pred_len: int         = 25,
+    stride: int           = 5,
     batch_size: int       = 128,
-    rare_threshold: float = 0.6,
+    rare_threshold: float = 0.85,
     seed: int             = 42,
 ):
     """
-    Load all SDD pedestrian annotations and return four DataLoaders.
-
-    Window lengths match Robicquet et al. ECCV 2016:
-        obs_len=6   → 2.4s  (6 × 0.4s)
-        pred_len=12 → 4.8s  (12 × 0.4s)
+    load all the SDD pedestrian annotations and return four DataLoaders.
 
     Returns: train_loader, val_loader, test_loader, rare_loader
     """
     np.random.seed(seed)
 
     txt_files = glob.glob(os.path.join(data_dir, "**/annotations.txt"), recursive=True)
-    assert len(txt_files) > 0, f"No annotations.txt found in {data_dir}"
+    assert len(txt_files) > 0, (
+        f"No annotations.txt found in {data_dir}\n"
+        f"Expected structure: {data_dir}/scene/videoN/annotations.txt"
+    )
     print(f"Found {len(txt_files)} annotation files")
 
     all_windows = []
@@ -193,23 +194,17 @@ def get_dataloaders(
         windows = extract_windows(agents, obs_len, pred_len, stride)
         all_windows.extend(windows)
 
-    print(f"Total windows (before stationary filter): {len(all_windows)}")
-    assert len(all_windows) > 0, "No windows extracted — check data path"
+    print(f"Total windows: {len(all_windows)}")
+    assert len(all_windows) > 0, "No windows extracted — check agent_type filter"
 
     risks = np.array([
         compute_risk_score(normalize_window(w[0], w[1])[0])
         for w in all_windows
     ])
 
-    valid_mask  = risks >= 0
-    all_windows = [all_windows[i] for i in np.where(valid_mask)[0]]
-    risks       = risks[valid_mask]
-    print(f"After removing stationary: {len(all_windows)} windows")
     print(
         f"Risk — mean: {risks.mean():.3f}  std: {risks.std():.3f}  "
-        f"p25: {np.percentile(risks,25):.3f}  "
-        f"p50: {np.percentile(risks,50):.3f}  "
-        f"p75: {np.percentile(risks,75):.3f}"
+        f"p60: {np.percentile(risks,60):.3f}  p80: {np.percentile(risks,80):.3f}"
     )
 
     rare_mask = risks >= rare_threshold
@@ -253,20 +248,8 @@ if __name__ == "__main__":
     loaders  = get_dataloaders(data_dir, batch_size=64)
 
     for obs, pred, risk in loaders[0]:
-        print(f"obs:  {obs.shape}   expect (64, 6, 4)")
-        print(f"pred: {pred.shape}  expect (64, 12, 4)")
+        print(f"obs:  {obs.shape}   expect (64, 15, 4)")
+        print(f"pred: {pred.shape}  expect (64, 25, 4)")
         print(f"risk: {risk.shape}  range [{risk.min():.3f}, {risk.max():.3f}]")
         break
     print("Data pipeline OK")
-
-
-
-
-
-
-
-
-
-
-
-

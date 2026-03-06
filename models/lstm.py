@@ -8,7 +8,7 @@ class LSTMModel(nn.Module):
         input_dim: int = 4,
         hidden_dim: int = 128,
         latent_dim: int = 64,
-        pred_len: int = 20,
+        pred_len: int = 25,
         num_layers: int = 2,
         dropout: float = 0.2,
     ):
