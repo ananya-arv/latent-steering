@@ -21,6 +21,7 @@ os.makedirs("results", exist_ok=True)
 DT = 1.0 / 30
 
 
+
 def risk_from_pred(pred_xy: np.ndarray) -> float:
     vxy  = np.diff(pred_xy, axis=0, prepend=pred_xy[:1]) / DT
     full = np.concatenate([pred_xy, vxy], axis=1)
@@ -28,7 +29,7 @@ def risk_from_pred(pred_xy: np.ndarray) -> float:
 
 
 def constant_velocity_pred(obs: np.ndarray, pred_len: int = 25) -> np.ndarray:
-    """Extrapolate last observed velocity (standard baseline)."""
+    """Extrapolate last observed velocity (standard baseline)"""
     last_pos = obs[-1, :2]
     last_vel = obs[-1, 2:]
     return np.array([last_pos + last_vel * DT * (t + 1) for t in range(pred_len)])
@@ -44,7 +45,27 @@ def collect_obs(val_loader, n: int = 300):
     return obs_list
 
 
+def collect_obs_interesting(val_loader, n: int = 4, min_spread: float = 0.08):
+    obs_list = []
+    for obs, _, _ in val_loader:
+        for i in range(obs.shape[0]):
+            traj = obs[i, :, :2].numpy()
+            x_range = traj[:, 0].max() - traj[:, 0].min()
+            y_range = traj[:, 1].max() - traj[:, 1].min()
+            if x_range > min_spread and y_range > min_spread:
+                obs_list.append(obs[i : i + 1])
+            if len(obs_list) >= n:
+                return obs_list
+    return obs_list
+
+
+
 def fig1_pca_latent(lstm, transformer, val_loader, device):
+    """
+    2D PCA projection of each model's latent space, colored by risk.
+    A clear color gradient from green→red along PC1 means risk is
+    linearly encoded~R² difference.
+    """
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
     fig.suptitle("Latent Space PCA — Colored by Risk Score\n"
                  "(clear green→red gradient = risk linearly encoded)",
@@ -65,15 +86,21 @@ def fig1_pca_latent(lstm, transformer, val_loader, device):
         ax.set_xlabel(f"PC1 ({var[0]:.1%} var)")
         ax.set_ylabel(f"PC2 ({var[1]:.1%} var)")
 
-        from numpy.polynomial import polynomial as P
-        coeffs = np.polyfit(z2[:, 0], r, 1)
-        x_line = np.linspace(z2[:, 0].min(), z2[:, 0].max(), 100)
-        ax.plot(x_line, np.polyval(coeffs, x_line) * 
-                (z2[:, 1].max() - z2[:, 1].min()) + z2[:, 1].mean(),
-                'k--', lw=1.5, alpha=0.5, label='Risk trend')
+        corr_pc1 = np.corrcoef(z2[:, 0], r)[0, 1]
+        corr_pc2 = np.corrcoef(z2[:, 1], r)[0, 1]
 
-        r2 = np.corrcoef(z2[:, 0], r)[0, 1] ** 2
-        ax.set_title(f"{name}  (R²={r2:.3f} along PC1)", fontsize=11)
+        cx, cy = z2[:, 0].mean(), z2[:, 1].mean()
+        scale  = (z2[:, 0].max() - z2[:, 0].min()) * 0.35
+        ax.annotate("", xy=(cx + corr_pc1 * scale, cy + corr_pc2 * scale),
+                    xytext=(cx - corr_pc1 * scale, cy - corr_pc2 * scale),
+                    arrowprops=dict(arrowstyle="->", color="black",
+                                   lw=2.0, alpha=0.7))
+        ax.text(cx + corr_pc1 * scale * 1.05,
+                cy + corr_pc2 * scale * 1.05,
+                "↑ risk", fontsize=9, color="black", alpha=0.8)
+
+        r2_full = np.corrcoef(z2[:, 0], r)[0, 1] ** 2
+        ax.set_title(f"{name}  (R²={r2_full:.3f} along PC1)", fontsize=11)
         ax.grid(alpha=0.2)
 
     plt.tight_layout()
@@ -94,7 +121,7 @@ def fig2_steering_examples(lstm, transformer, val_loader,
     alphas = [0.0, 0.5, 1.0, 1.5]
     colors = ["#2196F3", "#FFC107", "#FF5722", "#B71C1C"]
 
-    obs_list = collect_obs(val_loader, n_examples)
+    obs_list = collect_obs_interesting(val_loader, n_examples)
 
     fig, axes = plt.subplots(n_examples, 2, figsize=(12, 4 * n_examples))
     fig.suptitle("Steered Trajectory Examples\n"
@@ -189,11 +216,9 @@ def fig3_kde_risk(transformer, val_loader, w_tf, device):
     print(f"Saved → {out}")
 
 
-
 def fig4_cv_baseline(lstm, transformer, test_loader, device):
     """
     Compare LSTM, Transformer, and constant-velocity baseline on test set.
-    Reports test ADE and FDE
     """
     def eval_model(model, loader):
         model.eval()
@@ -270,6 +295,7 @@ def fig5_summary(lstm_r2, tf_r2, lstm_adv, tf_adv):
     fig.suptitle("Summary: Latent Space Quality Metrics",
                  fontsize=12, fontweight="bold")
 
+    # R² bars
     axes[0].bar(["LSTM", "Transformer"], [lstm_r2, tf_r2],
                 color=["#2196F3", "#F44336"], edgecolor="k",
                 linewidth=0.7, width=0.45)
@@ -342,14 +368,14 @@ if __name__ == "__main__":
     print("\n[Fig 4] Constant-velocity baseline comparison...")
     test_results = fig4_cv_baseline(lstm, transformer, test_loader, DEVICE)
 
-    lstm_adv = 0.141   # hardcoded from steer.py run
-    tf_adv   = 0.159
+    lstm_adv = 0.1409   
+    tf_adv   = 0.1592
 
     print("\n[Fig 5] Summary figure...")
     fig5_summary(r2_lstm, r2_tf, lstm_adv, tf_adv)
 
-    print("\n All figures saved to results/")
-    print("\n  FINAL TEST RESULTS (for paper Table 1):")
+    print("\nAll figures saved to results/")
+    print("\n  FINAL TEST RESULTS:")
     print(f"  Constant Velocity ADE: {test_results['cv']['ade']:.4f}m  FDE: {test_results['cv']['fde']:.4f}m")
     print(f"  LSTM              ADE: {test_results['lstm']['ade']:.4f}m  FDE: {test_results['lstm']['fde']:.4f}m")
     print(f"  Transformer       ADE: {test_results['tf']['ade']:.4f}m   FDE: {test_results['tf']['fde']:.4f}m")
