@@ -102,18 +102,17 @@ def steer_and_decode(model, obs: torch.Tensor, w: np.ndarray,
 def is_plausible(traj_xy: np.ndarray,
                  dt: float = 1.0 / 30,
                  max_speed: float = 6.0,
-                 max_displacement: float = 10.0) -> bool:
+                 max_total_dist: float = 5.0) -> bool:
     if len(traj_xy) < 2:
         return True
 
-    velocities = np.diff(traj_xy, axis=0) / dt
-    speeds     = np.sqrt((velocities ** 2).sum(-1))
+    step_dists = np.sqrt(((np.diff(traj_xy, axis=0))**2).sum(-1))
+    speeds     = step_dists / dt
 
     if speeds.max() > max_speed:
         return False
 
-    total_dist = np.sqrt(np.diff(traj_xy, axis=0)**2).sum()
-    if total_dist > max_displacement:
+    if step_dists.sum() > max_total_dist:
         return False
 
     return True
