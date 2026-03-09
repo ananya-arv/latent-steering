@@ -138,9 +138,9 @@ def compute_risk_score(traj: np.ndarray) -> float:
     d_heading = np.minimum(d_heading, 2 * np.pi - d_heading)
     turn_rate = d_heading / DT
 
-    r_speed = min(float(speeds.max()) / 2.5, 1.0)   # running fast
-    r_accel = min(float(accels.max()) / 8.0, 1.0)
-    r_turn = min(float(d_heading.max()) / (np.pi / 4), 1.0) # sharp reversal
+    r_speed = min(float(speeds.max()) / 3.5, 1.0)
+    r_accel = min(float(accels.max()) / 3.0, 1.0)
+    r_turn  = min(float(turn_rate.max()) / 3.0, 1.0)
 
     return 0.35 * r_speed + 0.35 * r_accel + 0.30 * r_turn
 
@@ -171,7 +171,7 @@ def get_dataloaders(
     pred_len: int         = 25,
     stride: int           = 5,
     batch_size: int       = 128,
-    rare_threshold: float = 0.9,
+    rare_threshold: float = 0.85,
     seed: int             = 42,
 ):
     """
