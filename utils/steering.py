@@ -100,21 +100,20 @@ def steer_and_decode(model, obs: torch.Tensor, w: np.ndarray,
 
 
 def is_plausible(traj_xy: np.ndarray,
-                 dt: float       = 1.0 / 30,
+                 dt: float = 1.0 / 30,
                  max_speed: float = 6.0,
-                 max_accel: float = 4.0) -> bool:
-    """
-    check whether a generated trajectory satisfies pedestrian physics
-    """
+                 max_displacement: float = 10.0) -> bool:
     if len(traj_xy) < 2:
         return True
 
     velocities = np.diff(traj_xy, axis=0) / dt
     speeds     = np.sqrt((velocities ** 2).sum(-1))
-    accels     = np.abs(np.diff(speeds)) / dt
 
     if speeds.max() > max_speed:
         return False
-    if len(accels) > 0 and accels.max() > max_accel:
+
+    total_dist = np.sqrt(np.diff(traj_xy, axis=0)**2).sum()
+    if total_dist > max_displacement:
         return False
+
     return True
