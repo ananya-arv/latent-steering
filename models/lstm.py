@@ -56,7 +56,7 @@ class LSTMModel(nn.Module):
 
 if __name__ == "__main__":
     model = LSTMModel()
-    x     = torch.randn(8, 15, 4)   # batch=8, obs_len=15, 4 features
+    x     = torch.randn(8, 15, 4) 
     pred, z = model(x)
     print(f"pred: {pred.shape}  expected (8, 25, 2)")
     print(f"z:    {z.shape}     expected (8, 64)")

@@ -83,6 +83,6 @@ if __name__ == "__main__":
     model   = TransformerModel()
     x       = torch.randn(8, 15, 4)
     pred, z = model(x)
-    print(f"pred: {pred.shape}  expected (8, 25, 2)")
-    print(f"z:    {z.shape}     expected (8, 64)")
+    print(f"pred: {pred.shape} ")
+    print(f"z:    {z.shape} ")
     print("TransformerModel forward pass good")

@@ -248,8 +248,8 @@ if __name__ == "__main__":
     loaders  = get_dataloaders(data_dir, batch_size=64)
 
     for obs, pred, risk in loaders[0]:
-        print(f"obs:  {obs.shape}   expect (64, 15, 4)")
-        print(f"pred: {pred.shape}  expect (64, 25, 4)")
+        print(f"obs:  {obs.shape}")
+        print(f"pred: {pred.shape}")
         print(f"risk: {risk.shape}  range [{risk.min():.3f}, {risk.max():.3f}]")
         break
     print("Data pipeline OK")

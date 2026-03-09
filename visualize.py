@@ -1,6 +1,5 @@
 """
 Generate all paper figures.
-
 """
 
 import os
@@ -141,7 +140,6 @@ def fig3_kde_risk(transformer, val_loader, w_tf, device):
     """
     KDE showing how steering shifts the risk distribution rightward.
     Training data = green. Steered at increasing alpha = orange→red.
-    This is the key evidence that steering GENERATES rare behaviors.
     """
     obs_list = collect_obs(val_loader, 300)
 
@@ -349,7 +347,7 @@ if __name__ == "__main__":
     fig5_summary(r2_lstm, r2_tf, lstm_adv, tf_adv)
 
     print("\n All figures saved to results/")
-    print("\n  FINAL TEST RESULTS (for paper Table 1):")
+    print("\n  FINAL TEST RESULTS:")
     print(f"  Constant Velocity ADE: {test_results['cv']['ade']:.4f}m  FDE: {test_results['cv']['fde']:.4f}m")
     print(f"  LSTM              ADE: {test_results['lstm']['ade']:.4f}m  FDE: {test_results['lstm']['fde']:.4f}m")
     print(f"  Transformer       ADE: {test_results['tf']['ade']:.4f}m   FDE: {test_results['tf']['fde']:.4f}m")
