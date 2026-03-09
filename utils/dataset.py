@@ -139,8 +139,8 @@ def compute_risk_score(traj: np.ndarray) -> float:
     turn_rate = d_heading / DT
 
     r_speed = min(float(speeds.max()) / 2.5, 1.0)   # running fast
-    r_accel = min(float(accels.max()) / 5.0, 1.0)   # sudden lurch
-    r_turn  = min(float(turn_rate.max()) / 8.0, 1.0) # sharp reversal
+    r_accel = min(float(accels.max()) / 8.0, 1.0)
+    r_turn = min(float(d_heading.max()) / (np.pi / 4), 1.0) # sharp reversal
 
     return 0.35 * r_speed + 0.35 * r_accel + 0.30 * r_turn
 
