@@ -348,7 +348,7 @@ if __name__ == "__main__":
     print("\n[Fig 5] Summary figure...")
     fig5_summary(r2_lstm, r2_tf, lstm_adv, tf_adv)
 
-    print("\All figures saved to results/")
+    print("\n All figures saved to results/")
     print("\n  FINAL TEST RESULTS (for paper Table 1):")
     print(f"  Constant Velocity ADE: {test_results['cv']['ade']:.4f}m  FDE: {test_results['cv']['fde']:.4f}m")
     print(f"  LSTM              ADE: {test_results['lstm']['ade']:.4f}m  FDE: {test_results['lstm']['fde']:.4f}m")
