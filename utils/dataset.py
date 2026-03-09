@@ -45,8 +45,12 @@ def load_sdd_txt(filepath: str, agent_type: str = "Pedestrian") -> dict:
     agents = {}
     for agent_id, group in df.groupby("track_id"):
         group = group.sort_values("frame_id").reset_index(drop=True)
-        xy    = group[["x", "y"]].values.astype(np.float32)
+        
+        frame_gaps = group["frame_id"].diff().dropna()
+        if (frame_gaps > 1).any():
+            continue
 
+        xy = group[["x", "y"]].values.astype(np.float32)
         if len(xy) < 5:
             continue
 
@@ -54,7 +58,6 @@ def load_sdd_txt(filepath: str, agent_type: str = "Pedestrian") -> dict:
         agents[agent_id] = np.concatenate([xy, vxy], axis=1)  # (T, 4)
 
     return agents
-
 
 
 def extract_windows(
