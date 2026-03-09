@@ -166,7 +166,7 @@ if __name__ == "__main__":
     DATA_DIR = sys.argv[1] if len(sys.argv) > 1 else "/content/SDD/annotations/"
     DEVICE   = "cuda" if torch.cuda.is_available() else "cpu"
 
-    _, val_loader, _, _ = get_dataloaders(DATA_DIR, batch_size=128, rare_threshold=0.85)
+    _, val_loader, _, _ = get_dataloaders(DATA_DIR, batch_size=128, rare_threshold=0.9)
 
     lstm = LSTMModel()
     lstm.load_state_dict(torch.load("checkpoints/lstm_best_v1.pt", map_location="cpu"))
