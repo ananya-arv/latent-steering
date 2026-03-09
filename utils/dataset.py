@@ -45,12 +45,8 @@ def load_sdd_txt(filepath: str, agent_type: str = "Pedestrian") -> dict:
     agents = {}
     for agent_id, group in df.groupby("track_id"):
         group = group.sort_values("frame_id").reset_index(drop=True)
-        
-        frame_gaps = group["frame_id"].diff().dropna()
-        if (frame_gaps > 1).any():
-            continue
+        xy    = group[["x", "y"]].values.astype(np.float32)
 
-        xy = group[["x", "y"]].values.astype(np.float32)
         if len(xy) < 5:
             continue
 
@@ -58,6 +54,7 @@ def load_sdd_txt(filepath: str, agent_type: str = "Pedestrian") -> dict:
         agents[agent_id] = np.concatenate([xy, vxy], axis=1)  # (T, 4)
 
     return agents
+
 
 
 def extract_windows(
@@ -122,15 +119,30 @@ def normalize_window(obs: np.ndarray, pred: np.ndarray):
 
 
 def compute_risk_score(traj: np.ndarray) -> float:
-    speeds   = np.sqrt(traj[:, 2]**2 + traj[:, 3]**2)
-    
+    """
+    scalar risk score in [0, 1] for a pedestrian trajectory window.
+
+    Three components:
+        speed (running near traffic is unusual/dangerous)
+        accel  (sudden speed changes = unpredictable)
+        turn rate  (erratic direction changes = collision risk)
+
+    Args:
+        traj: (T, 4) = [x, y, vx, vy]
+    """
+    speeds    = np.sqrt(traj[:, 2] ** 2 + traj[:, 3] ** 2)
+    accels    = np.abs(np.diff(speeds)) / DT
+
     headings  = np.arctan2(traj[:, 3], traj[:, 2])
     d_heading = np.abs(np.diff(headings))
-    d_heading = np.minimum(d_heading, 2*np.pi - d_heading)    
-    r_speed = min(float(speeds.max()) / 2.5, 1.0) 
-    r_turn  = min(float(d_heading.max()) / np.pi, 1.0)
+    d_heading = np.minimum(d_heading, 2 * np.pi - d_heading)
+    turn_rate = d_heading / DT
 
-    return 0.5 * r_speed + 0.5 * r_turn
+    r_speed = min(float(speeds.max()) / 3.5, 1.0)
+    r_accel = min(float(accels.max()) / 3.0, 1.0)
+    r_turn  = min(float(turn_rate.max()) / 3.0, 1.0)
+
+    return 0.35 * r_speed + 0.35 * r_accel + 0.30 * r_turn
 
 
 class TrajectoryDataset(Dataset):
