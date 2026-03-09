@@ -342,10 +342,8 @@ if __name__ == "__main__":
     print("\n[Fig 4] Constant-velocity baseline comparison...")
     test_results = fig4_cv_baseline(lstm, transformer, test_loader, DEVICE)
 
-    # Compute steering advantages from steer.py results
-    # (hardcoded from your last steer.py run — update if you rerun)
-    lstm_adv = 0.1409   # structured - random at optimal alpha
-    tf_adv   = 0.1592
+    lstm_adv = 0.141   # hardcoded from steer.py run
+    tf_adv   = 0.159
 
     print("\n[Fig 5] Summary figure...")
     fig5_summary(r2_lstm, r2_tf, lstm_adv, tf_adv)
