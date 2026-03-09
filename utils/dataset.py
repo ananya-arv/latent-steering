@@ -122,30 +122,15 @@ def normalize_window(obs: np.ndarray, pred: np.ndarray):
 
 
 def compute_risk_score(traj: np.ndarray) -> float:
-    """
-    scalar risk score in [0, 1] for a pedestrian trajectory window.
-
-    Three components:
-        speed (running near traffic is unusual/dangerous)
-        accel  (sudden speed changes = unpredictable)
-        turn rate  (erratic direction changes = collision risk)
-
-    Args:
-        traj: (T, 4) = [x, y, vx, vy]
-    """
-    speeds    = np.sqrt(traj[:, 2] ** 2 + traj[:, 3] ** 2)
-    accels    = np.abs(np.diff(speeds)) / DT
-
+    speeds   = np.sqrt(traj[:, 2]**2 + traj[:, 3]**2)
+    
     headings  = np.arctan2(traj[:, 3], traj[:, 2])
     d_heading = np.abs(np.diff(headings))
-    d_heading = np.minimum(d_heading, 2 * np.pi - d_heading)
-    turn_rate = d_heading / DT
+    d_heading = np.minimum(d_heading, 2*np.pi - d_heading)    
+    r_speed = min(float(speeds.max()) / 2.5, 1.0) 
+    r_turn  = min(float(d_heading.max()) / np.pi, 1.0)
 
-    r_speed = min(float(speeds.max()) / 3.5, 1.0)
-    r_accel = min(float(accels.max()) / 3.0, 1.0)
-    r_turn  = min(float(turn_rate.max()) / 3.0, 1.0)
-
-    return 0.35 * r_speed + 0.35 * r_accel + 0.30 * r_turn
+    return 0.5 * r_speed + 0.5 * r_turn
 
 
 class TrajectoryDataset(Dataset):
