@@ -101,23 +101,11 @@ def steer_and_decode(model, obs: torch.Tensor, w: np.ndarray,
 
 def is_plausible(traj_xy: np.ndarray,
                  dt: float = 1.0 / 30,
-                 max_speed: float = 6.0,
-                 max_heading_change: float = np.pi / 4) -> bool:
+                 max_speed: float = 3.5) -> bool:
     if len(traj_xy) < 2:
         return True
 
-    steps = np.diff(traj_xy, axis=0)
-    step_dists = np.sqrt((steps**2).sum(-1))
-    speeds = step_dists / dt
+    step_dists = np.sqrt(((np.diff(traj_xy, axis=0))**2).sum(-1))
+    speeds     = step_dists / dt
 
-    if speeds.max() > max_speed:
-        return False
-
-    headings = np.arctan2(steps[:, 1], steps[:, 0])
-    if len(headings) > 1:
-        d_heading = np.abs(np.diff(headings))
-        d_heading = np.minimum(d_heading, 2*np.pi - d_heading)
-        if d_heading.max() > max_heading_change:
-            return False
-
-    return True
+    return bool(speeds.max() <= max_speed)
