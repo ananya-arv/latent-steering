@@ -1,0 +1,11 @@
+  SUMMARY TABLE (for paper)
+Metric                                         LSTM  Transformer
+-----------------------------------------------------------------
+Val ADE (m)                                  0.0713       0.0576
+Val FDE (m)                                  0.1339       0.1057
+Linear R² (latent linearity)                 0.3156       0.8083
+Optimal spot α                                 1.50         1.50
+Structured risk at optimal spot              0.8971       0.7977
+Random baseline risk                         0.7562       0.6384
+Structured advantage                         0.1409       0.1592
+Plausibility at optimal spot                 0.9433       0.9833
