@@ -1,6 +1,6 @@
 # Latent Space Steering for Controllable Rare Pedestrian Trajectory Generation
 
-**Ananya Arvind** · UC Los Angeles · March 2026
+**Ananya Arvind** · UCLA · March 2026
 
 > *Can we steer the latent space of an already-trained trajectory predictor to generate rare, high-activity pedestrian behaviors — without any retraining?*
 
