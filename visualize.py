@@ -313,11 +313,11 @@ if __name__ == "__main__":
     )
 
     lstm = LSTMModel()
-    lstm.load_state_dict(torch.load("checkpoints/lstm_best_v1.pt", map_location="cpu"))
+    lstm.load_state_dict(torch.load("checkpoints/lstm_best.pt", map_location="cpu"))
     lstm = lstm.to(DEVICE)
 
     transformer = TransformerModel()
-    transformer.load_state_dict(torch.load("checkpoints/transformer_best_v1.pt", map_location="cpu"))
+    transformer.load_state_dict(torch.load("checkpoints/transformer_best.pt", map_location="cpu"))
     transformer = transformer.to(DEVICE)
 
     print("Extracting latents and steering vectors...")

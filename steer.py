@@ -169,11 +169,11 @@ if __name__ == "__main__":
     _, val_loader, _, _ = get_dataloaders(DATA_DIR, batch_size=128, rare_threshold=0.9)
 
     lstm = LSTMModel()
-    lstm.load_state_dict(torch.load("checkpoints/lstm_best_v1.pt", map_location="cpu"))
+    lstm.load_state_dict(torch.load("checkpoints/lstm_best.pt", map_location="cpu"))
     lstm = lstm.to(DEVICE)
 
     transformer = TransformerModel()
-    transformer.load_state_dict(torch.load("checkpoints/transformer_best_v1.pt", map_location="cpu"))
+    transformer.load_state_dict(torch.load("checkpoints/transformer_best.pt", map_location="cpu"))
     transformer = transformer.to(DEVICE)
 
     lstm_rec, lstm_r2, lstm_rand, lstm_rand_plaus, lstm_opt, lstm_w = run_experiment(
